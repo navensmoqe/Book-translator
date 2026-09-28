@@ -85,7 +85,7 @@ class TranslatorRouter {
       final map = <String, String>{};
       var index = 0;
       final protectedText = e.text.replaceAllMapped(
-        RegExp(r'\\b[A-Z][A-Z0-9.+/-]{1,}\\b'),
+        RegExp(r'\b[A-Z][A-Z0-9.+/-]{1,}\b'),
         (m) {
           final placeholder = '__KEEP_${e.id}_${index++}__';
           map[placeholder] = m.group(0) ?? '';
