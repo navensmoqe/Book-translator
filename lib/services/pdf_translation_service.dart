@@ -471,8 +471,8 @@ class PdfTranslationService {
     final bs = <int>[];
 
     void sample(double x, double y) {
-      final px = x.round().clamp(0, imageWidth - 1);
-      final py = y.round().clamp(0, imageHeight - 1);
+      final px = x.round().clamp(0, imageWidth - 1).toInt();
+      final py = y.round().clamp(0, imageHeight - 1).toInt();
       final index = (py * imageWidth + px) * 4;
       if (index + 3 >= rgba.length) return;
       final alpha = rgba[index + 3];
