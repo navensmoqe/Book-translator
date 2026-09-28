@@ -29,25 +29,18 @@ workflows:
           cd buildapp
           flutter pub get
 
-      - name: Install custom launcher icon
+      - name: Generate launcher icon
         script: |
           set -e
-          ICON="$CM_BUILD_DIR/assets/app_icon.png"
           RES="$CM_BUILD_DIR/buildapp/android/app/src/main/res"
-
-          if [ ! -f "$ICON" ]; then
-            echo "Missing launcher icon: $ICON"
-            exit 1
-          fi
 
           python3 -m pip install --quiet Pillow
 
-          ICON="$ICON" RES="$RES" python3 - <<'PY'
+          RES="$RES" python3 - <<'PY'
           import os
           from pathlib import Path
-          from PIL import Image
+          from PIL import Image, ImageDraw, ImageFont
 
-          icon = Path(os.environ["ICON"])
           res = Path(os.environ["RES"])
 
           sizes = {
@@ -58,25 +51,91 @@ workflows:
               "mipmap-xxxhdpi": 192,
           }
 
-          with Image.open(icon) as src:
-              src = src.convert("RGBA")
-              for folder, size in sizes.items():
-                  target_dir = res / folder
-                  target_dir.mkdir(parents=True, exist_ok=True)
+          def font(size, bold=False):
+              candidates = [
+                  "/System/Library/Fonts/Supplemental/Arial Bold.ttf" if bold else "/System/Library/Fonts/Supplemental/Arial.ttf",
+                  "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+                  "/System/Library/Fonts/Helvetica.ttc",
+              ]
+              for p in candidates:
+                  if Path(p).exists():
+                      try:
+                          return ImageFont.truetype(p, size=size)
+                      except Exception:
+                          pass
+              return ImageFont.load_default()
 
-                  resized = src.resize((size, size), Image.Resampling.LANCZOS)
-                  for name in ("ic_launcher.png", "ic_launcher_round.png"):
-                      target = target_dir / name
-                      resized.save(
-                          target,
-                          format="PNG",
-                          optimize=False,
-                          compress_level=6,
-                      )
-                      # Verify Pillow can reopen the exact file written.
-                      with Image.open(target) as check:
-                          check.verify()
-                      print(f"Wrote {target} ({size}x{size})")
+          def make_icon(size):
+              s = size
+              img = Image.new("RGBA", (s, s), (18, 48, 105, 255))
+              d = ImageDraw.Draw(img)
+
+              # blue gradient background
+              for y in range(s):
+                  t = y / max(1, s - 1)
+                  r = int(22 + 10 * t)
+                  g = int(58 + 65 * t)
+                  b = int(140 + 70 * t)
+                  d.line((0, y, s, y), fill=(r, g, b, 255))
+
+              pad = int(s * 0.08)
+              radius = int(s * 0.18)
+              # subtle rounded border
+              d.rounded_rectangle((pad, pad, s-pad, s-pad), radius=radius,
+                                  outline=(120, 190, 255, 180), width=max(1, s//40))
+
+              # globe
+              gx0, gy0 = int(s*.27), int(s*.58)
+              gx1, gy1 = int(s*.73), int(s*.98)
+              d.ellipse((gx0, gy0, gx1, gy1), fill=(46, 145, 225, 255),
+                        outline=(220, 245, 255, 255), width=max(1, s//35))
+              cx=(gx0+gx1)//2; cy=(gy0+gy1)//2
+              d.arc((gx0+int(s*.07), gy0, gx1-int(s*.07), gy1), 0, 360,
+                    fill=(225,245,255,220), width=max(1,s//45))
+              d.line((gx0, cy, gx1, cy), fill=(225,245,255,220), width=max(1,s//45))
+              d.arc((gx0, gy0+int(s*.07), gx1, gy1-int(s*.07)), 0, 360,
+                    fill=(225,245,255,180), width=max(1,s//55))
+
+              # open book
+              y0=int(s*.28); y1=int(s*.68)
+              mid=s//2
+              left=[(int(s*.14),y0),(mid-2,int(s*.34)),(mid-2,y1),(int(s*.13),int(s*.61))]
+              right=[(mid+2,int(s*.34)),(int(s*.86),y0),(int(s*.87),int(s*.61)),(mid+2,y1)]
+              d.polygon(left, fill=(248,250,255,255))
+              d.polygon(right, fill=(214,235,255,255))
+              d.line((mid,y0+int(s*.05),mid,y1), fill=(90,120,160,255), width=max(1,s//45))
+
+              # PDF label
+              f_pdf = font(max(8, int(s*.12)), bold=True)
+              d.text((int(s*.20), int(s*.37)), "PDF", font=f_pdf, fill=(35,55,90,255))
+
+              # A label
+              f_a = font(max(8, int(s*.16)), bold=True)
+              d.text((int(s*.61), int(s*.36)), "A", font=f_a, fill=(25,95,190,255))
+
+              # translation arrows
+              aw=max(1,s//38)
+              y=int(s*.53)
+              d.line((int(s*.36),y,int(s*.64),y), fill=(20,95,205,255), width=aw)
+              d.polygon([(int(s*.64),y),(int(s*.58),y-int(s*.04)),(int(s*.58),y+int(s*.04))],
+                        fill=(20,95,205,255))
+              y2=int(s*.59)
+              d.line((int(s*.64),y2,int(s*.36),y2), fill=(20,95,205,255), width=aw)
+              d.polygon([(int(s*.36),y2),(int(s*.42),y2-int(s*.04)),(int(s*.42),y2+int(s*.04))],
+                        fill=(20,95,205,255))
+
+              return img
+
+          for folder, size in sizes.items():
+              target_dir = res / folder
+              target_dir.mkdir(parents=True, exist_ok=True)
+              icon = make_icon(size)
+              for name in ("ic_launcher.png", "ic_launcher_round.png"):
+                  target = target_dir / name
+                  icon.save(target, format="PNG", optimize=False, compress_level=6)
+                  with Image.open(target) as check:
+                      check.verify()
+                  print(f"Wrote valid icon {target} ({size}x{size})")
 
           anydpi = res / "mipmap-anydpi-v26"
           for name in ("ic_launcher.xml", "ic_launcher_round.xml"):
@@ -84,7 +143,7 @@ workflows:
               if path.exists():
                   path.unlink()
 
-          print("Custom Book Translator launcher icons normalized successfully.")
+          print("Launcher icons generated successfully.")
           PY
 
       - name: Analyze source
