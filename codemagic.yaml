@@ -29,7 +29,7 @@ workflows:
           cd buildapp
           flutter pub get
 
-      - name: Generate custom launcher icon
+      - name: Install custom launcher icon
         script: |
           set -e
           ICON="$CM_BUILD_DIR/assets/app_icon.png"
@@ -40,26 +40,16 @@ workflows:
             exit 1
           fi
 
-          make_icon() {
-            DIR="$1"
-            SIZE="$2"
+          for DIR in mipmap-mdpi mipmap-hdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
             mkdir -p "$RES/$DIR"
-            sips -s format png -z "$SIZE" "$SIZE" "$ICON" --out "$RES/$DIR/ic_launcher.png" >/dev/null
-            cp "$RES/$DIR/ic_launcher.png" "$RES/$DIR/ic_launcher_round.png"
-          }
+            cp "$ICON" "$RES/$DIR/ic_launcher.png"
+            cp "$ICON" "$RES/$DIR/ic_launcher_round.png"
+          done
 
-          make_icon mipmap-mdpi 48
-          make_icon mipmap-hdpi 72
-          make_icon mipmap-xhdpi 96
-          make_icon mipmap-xxhdpi 144
-          make_icon mipmap-xxxhdpi 192
-
-          # Force Android to use our raster icon instead of Flutter's default
-          # adaptive launcher resources.
           rm -f "$RES/mipmap-anydpi-v26/ic_launcher.xml"
           rm -f "$RES/mipmap-anydpi-v26/ic_launcher_round.xml"
 
-          echo "Custom Book Translator launcher icon generated."
+          echo "Custom Book Translator launcher icon installed."
 
       - name: Analyze source
         script: |
