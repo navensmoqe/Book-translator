@@ -85,7 +85,10 @@ class TranslatorRouter {
 Translate every item in the JSON array below into natural Modern Standard Arabic.
 Rules:
 - Do not summarize or omit anything.
-- Preserve names, numbers, citations, punctuation, and meaning.
+- Preserve names, numbers, citations, section numbers, punctuation, and meaning.
+- Use natural Modern Standard Arabic word spacing. NEVER concatenate separate Arabic words.
+- Keep each item as one coherent text block and do not insert artificial line breaks.
+- If an item begins with a section number such as "1. Introduction", keep that section number and translate the heading naturally.
 - Use the surrounding items as context, but translate each item independently.
 - Return ONLY valid JSON in exactly this shape:
 {"translations":[{"id":0,"text":"Arabic translation"}]}
