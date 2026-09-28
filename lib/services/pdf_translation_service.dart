@@ -91,8 +91,10 @@ class PdfTranslationService {
             }
           }
 
-          final renderedWidth = rendered.width.toDouble();
-          final renderedHeight = rendered.height.toDouble();
+          final renderedWidth =
+              (rendered.width ?? (page.width * scale).round()).toDouble();
+          final renderedHeight =
+              (rendered.height ?? (page.height * scale).round()).toDouble();
           final pageWidth = page.width;
           final pageHeight = page.height;
           final sx = pageWidth / renderedWidth;
@@ -130,11 +132,14 @@ class PdfTranslationService {
                     pw.Positioned(
                       left: left,
                       top: top,
-                      width: width,
-                      height: height,
                       child: pw.Container(
+                        width: width,
+                        height: height,
                         color: PdfColors.white,
-                        padding: const pw.EdgeInsets.symmetric(horizontal: 0.8, vertical: 0.2),
+                        padding: const pw.EdgeInsets.symmetric(
+                          horizontal: 0.8,
+                          vertical: 0.2,
+                        ),
                         alignment: pw.Alignment.centerRight,
                         child: pw.FittedBox(
                           fit: pw.BoxFit.scaleDown,
@@ -145,7 +150,8 @@ class PdfTranslationService {
                             textAlign: pw.TextAlign.right,
                             style: pw.TextStyle(
                               font: arabicFont,
-                              fontSize: math.max(7.0, height * 0.86).toDouble(),
+                              fontSize:
+                                  math.max(7.0, height * 0.86).toDouble(),
                               color: PdfColors.black,
                             ),
                           ),
@@ -181,7 +187,7 @@ class PdfTranslationService {
       onProgress(1, 'اكتملت الترجمة وحُفظ الملف في Downloads.');
       return saved;
     } finally {
-      recognizer.close();
+      await recognizer.close();
       await source.close();
     }
   }
