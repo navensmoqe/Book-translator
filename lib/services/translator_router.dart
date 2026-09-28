@@ -80,28 +80,13 @@ class TranslatorRouter {
     if (base.endsWith('/')) base = base.substring(0, base.length - 1);
     if (base.isEmpty) throw TranslationApiException('Base URL فارغ.');
 
-    final protectedTokens = <int, Map<String, String>>{};
-    final input = items.map((e) {
-      final map = <String, String>{};
-      var index = 0;
-      final protectedText = e.text.replaceAllMapped(
-        RegExp(r'\b[A-Z][A-Z0-9.+/-]{1,}\b'),
-        (m) {
-          final placeholder = '__KEEP_${e.id}_${index++}__';
-          map[placeholder] = m.group(0) ?? '';
-          return placeholder;
-        },
-      );
-      protectedTokens[e.id] = map;
-      return {'id': e.id, 'text': protectedText};
-    }).toList();
+    final input = items.map((e) => {'id': e.id, 'text': e.text}).toList();
 
     final prompt = '''
 Translate every item in the JSON array below into natural Modern Standard Arabic.
 Rules:
 - Do not summarize or omit anything.
 - Preserve names, numbers, citations, section numbers, punctuation, and meaning.
-- Preserve every token shaped like __KEEP_0_0__ EXACTLY as written. Never translate, alter, delete, or re-order those protected tokens.
 - Use natural Modern Standard Arabic word spacing. NEVER concatenate separate Arabic words.
 - Keep each item as one coherent text block and do not insert artificial line breaks.
 - If an item begins with a section number such as "1. Introduction", keep that section number and translate the heading naturally.
@@ -174,6 +159,7 @@ ${jsonEncode(input)}
       throw TranslationApiException('${config.name}: JSON لا يحتوي translations.');
     }
 
+    final sourceById = <int, String>{for (final e in items) e.id: e.text};
     final result = <int, String>{};
     for (final row in list) {
       final item = Map<String, dynamic>.from(row as Map);
@@ -181,9 +167,9 @@ ${jsonEncode(input)}
       if (id is num) {
         final numericId = id.toInt();
         var text = (item['text'] ?? '').toString();
-        final replacements = protectedTokens[numericId] ?? const <String, String>{};
-        for (final entry in replacements.entries) {
-          text = text.replaceAll(entry.key, entry.value);
+        final sourceText = sourceById[numericId];
+        if (sourceText != null) {
+          text = _restoreAcronyms(sourceText, text);
         }
         result[numericId] = text;
       }
@@ -191,6 +177,33 @@ ${jsonEncode(input)}
 
     for (final item in items) {
       result.putIfAbsent(item.id, () => item.text);
+    }
+    return result;
+  }
+
+  String _restoreAcronyms(String source, String translated) {
+    final acronyms = RegExp(r'\b[A-Z][A-Z0-9.+/-]{1,}\b')
+        .allMatches(source)
+        .map((m) => m.group(0)!)
+        .toSet();
+
+    var result = translated;
+    for (final acronym in acronyms) {
+      if (result.contains(acronym)) continue;
+
+      // Translation models occasionally mutate PDF -> PDE/PDF-like tokens.
+      // Replace the first all-uppercase token of the same length when present.
+      final candidate = RegExp(
+        r'\b[A-Z][A-Z0-9.+/-]{' + (acronym.length - 1).toString() + r'}\b',
+      ).firstMatch(result);
+
+      if (candidate != null) {
+        result = result.replaceRange(candidate.start, candidate.end, acronym);
+      } else {
+        // If no comparable token survived, append the source acronym so it is
+        // never silently lost from technical/document text.
+        result = '$result $acronym';
+      }
     }
     return result;
   }
