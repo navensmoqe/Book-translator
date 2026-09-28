@@ -529,7 +529,7 @@ class PdfTranslationService {
         RegExp(r'^\s*(\d+(?:\.\d+)*)\.\s*(.+)$').firstMatch(source);
     if (match == null) return null;
 
-    final number = '${match.group(1)}.';
+    final number = '${match.group(1)}. ';
     var title = translated.trim();
 
     // Remove whichever side the model placed the section number on.
@@ -547,21 +547,19 @@ class PdfTranslationService {
   }
 
   String _displayArabic(String value) {
-    var result = value.trim();
-
-    // Keep ordinary spaces for wrapping, but add a small visual spacer so
-    // Arabic words remain visibly separated at small PDF font sizes.
-    result = result.replaceAll(' ', ' \u2009');
-
-    // Stabilize embedded western numbers and acronyms inside RTL text.
-    // Avoid lookbehind so this remains compatible with all Dart runtimes.
-    result = result.replaceAllMapped(
-      RegExp(r'(^|[^A-Za-z0-9])(\d+[\d.,:/-]*|[A-Z]{2,})(?=$|[^A-Za-z0-9])'),
-      (m) =>
-          '${m.group(1) ?? ''}\u200E${m.group(2) ?? ''}\u200E',
-    );
-
-    return result;
+    // The PDF font used here does not reliably contain glyphs for bidi control
+    // marks such as LRM. Plain text + TextDirection.rtl renders more cleanly
+    // and avoids visible tofu/square boxes around numbers and acronyms.
+    return value
+        .replaceAll('\u200e', '')
+        .replaceAll('\u200f', '')
+        .replaceAll('\u2009', ' ')
+        .replaceAll('\u2066', '')
+        .replaceAll('\u2067', '')
+        .replaceAll('\u2068', '')
+        .replaceAll('\u2069', '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
   }
 
   double _fitFontSize(
