@@ -34,6 +34,10 @@ workflows:
           cd buildapp
           flutter analyze lib --no-fatal-infos --no-fatal-warnings
 
+      - name: Verify Android release config
+        script: |
+          grep -R "BOOK_TRANSLATOR_DISABLE_R8" buildapp/android/app/build.gradle* || true
+
       - name: Build APK
         script: |
           cd buildapp
