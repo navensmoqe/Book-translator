@@ -56,12 +56,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _pickPdf() async {
-    final result = await FilePicker.platform.pickFiles(
+    final file = await FilePicker.pickFile(
       type: FileType.custom,
       allowedExtensions: const ['pdf'],
     );
-    if (result == null || result.files.isEmpty) return;
-    final file = result.files.single;
+    if (file == null) return;
     if (file.path == null) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
