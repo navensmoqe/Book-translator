@@ -4,14 +4,20 @@ workflows:
     max_build_duration: 60
 
     environment:
-      flutter: stable
+      flutter: 3.47.5
+
+    cache:
+      cache_paths:
+        - ~/.pub-cache
+        - ~/.gradle/caches
+        - ~/.gradle/wrapper
 
     scripts:
       - name: Create Android project
         script: |
           flutter create --platforms=android --org com.sumer --project-name pdf_arabic_translator buildapp
 
-      - name: Copy app source
+      - name: Copy app source and patch Android
         script: |
           cp pubspec.yaml buildapp/pubspec.yaml
           rm -rf buildapp/lib
@@ -23,10 +29,15 @@ workflows:
           cd buildapp
           flutter pub get
 
+      - name: Analyze source
+        script: |
+          cd buildapp
+          flutter analyze --no-fatal-infos --no-fatal-warnings
+
       - name: Build APK
         script: |
           cd buildapp
           flutter build apk --release
 
     artifacts:
-      - buildapp/build/app/outputs/flutter-apk/app-release.apk
+      - buildapp/build/app/outputs/flutter-apk/*.apk
