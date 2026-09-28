@@ -70,3 +70,54 @@ rules = """
 existing = proguard.read_text(encoding="utf-8") if proguard.exists() else ""
 if "Book Translator / ML Kit optional" not in existing:
     proguard.write_text(existing + "\n" + rules, encoding="utf-8")
+
+
+# Disable code shrinking/minification for this personal app.
+# Several native plugins (notably ML Kit) use generated/reflection-heavy Android code;
+# disabling R8 avoids release-only runtime crashes and keeps stack traces readable.
+if kts.exists():
+    gradle = kts.read_text(encoding="utf-8")
+    if "BOOK_TRANSLATOR_DISABLE_R8" not in gradle:
+        marker_release = 'getByName("release") {'
+        replacement = '''getByName("release") {
+            // BOOK_TRANSLATOR_DISABLE_R8
+            isMinifyEnabled = false
+            isShrinkResources = false'''
+        if marker_release in gradle:
+            gradle = gradle.replace(marker_release, replacement, 1)
+        else:
+            gradle += '''
+// BOOK_TRANSLATOR_DISABLE_R8
+android {
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = false
+            isShrinkResources = false
+        }
+    }
+}
+'''
+        kts.write_text(gradle, encoding="utf-8")
+elif groovy.exists():
+    gradle = groovy.read_text(encoding="utf-8")
+    if "BOOK_TRANSLATOR_DISABLE_R8" not in gradle:
+        marker_release = "release {"
+        replacement = """release {
+            // BOOK_TRANSLATOR_DISABLE_R8
+            minifyEnabled false
+            shrinkResources false"""
+        if marker_release in gradle:
+            gradle = gradle.replace(marker_release, replacement, 1)
+        else:
+            gradle += """
+// BOOK_TRANSLATOR_DISABLE_R8
+android {
+    buildTypes {
+        release {
+            minifyEnabled false
+            shrinkResources false
+        }
+    }
+}
+"""
+        groovy.write_text(gradle, encoding="utf-8")
