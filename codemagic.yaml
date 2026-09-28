@@ -40,16 +40,52 @@ workflows:
             exit 1
           fi
 
-          for DIR in mipmap-mdpi mipmap-hdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
-            mkdir -p "$RES/$DIR"
-            cp "$ICON" "$RES/$DIR/ic_launcher.png"
-            cp "$ICON" "$RES/$DIR/ic_launcher_round.png"
-          done
+          python3 -m pip install --quiet Pillow
 
-          rm -f "$RES/mipmap-anydpi-v26/ic_launcher.xml"
-          rm -f "$RES/mipmap-anydpi-v26/ic_launcher_round.xml"
+          ICON="$ICON" RES="$RES" python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from PIL import Image
 
-          echo "Custom Book Translator launcher icon installed."
+          icon = Path(os.environ["ICON"])
+          res = Path(os.environ["RES"])
+
+          sizes = {
+              "mipmap-mdpi": 48,
+              "mipmap-hdpi": 72,
+              "mipmap-xhdpi": 96,
+              "mipmap-xxhdpi": 144,
+              "mipmap-xxxhdpi": 192,
+          }
+
+          with Image.open(icon) as src:
+              src = src.convert("RGBA")
+              for folder, size in sizes.items():
+                  target_dir = res / folder
+                  target_dir.mkdir(parents=True, exist_ok=True)
+
+                  resized = src.resize((size, size), Image.Resampling.LANCZOS)
+                  for name in ("ic_launcher.png", "ic_launcher_round.png"):
+                      target = target_dir / name
+                      resized.save(
+                          target,
+                          format="PNG",
+                          optimize=False,
+                          compress_level=6,
+                      )
+                      # Verify Pillow can reopen the exact file written.
+                      with Image.open(target) as check:
+                          check.verify()
+                      print(f"Wrote {target} ({size}x{size})")
+
+          anydpi = res / "mipmap-anydpi-v26"
+          for name in ("ic_launcher.xml", "ic_launcher_round.xml"):
+              path = anydpi / name
+              if path.exists():
+                  path.unlink()
+
+          print("Custom Book Translator launcher icons normalized successfully.")
+          PY
 
       - name: Analyze source
         script: |
