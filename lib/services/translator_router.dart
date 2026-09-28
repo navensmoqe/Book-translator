@@ -80,12 +80,28 @@ class TranslatorRouter {
     if (base.endsWith('/')) base = base.substring(0, base.length - 1);
     if (base.isEmpty) throw TranslationApiException('Base URL فارغ.');
 
-    final input = items.map((e) => {'id': e.id, 'text': e.text}).toList();
+    final protectedTokens = <int, Map<String, String>>{};
+    final input = items.map((e) {
+      final map = <String, String>{};
+      var index = 0;
+      final protectedText = e.text.replaceAllMapped(
+        RegExp(r'\\b[A-Z][A-Z0-9.+/-]{1,}\\b'),
+        (m) {
+          final placeholder = '__KEEP_${e.id}_${index++}__';
+          map[placeholder] = m.group(0) ?? '';
+          return placeholder;
+        },
+      );
+      protectedTokens[e.id] = map;
+      return {'id': e.id, 'text': protectedText};
+    }).toList();
+
     final prompt = '''
 Translate every item in the JSON array below into natural Modern Standard Arabic.
 Rules:
 - Do not summarize or omit anything.
 - Preserve names, numbers, citations, section numbers, punctuation, and meaning.
+- Preserve every token shaped like __KEEP_0_0__ EXACTLY as written. Never translate, alter, delete, or re-order those protected tokens.
 - Use natural Modern Standard Arabic word spacing. NEVER concatenate separate Arabic words.
 - Keep each item as one coherent text block and do not insert artificial line breaks.
 - If an item begins with a section number such as "1. Introduction", keep that section number and translate the heading naturally.
@@ -163,7 +179,13 @@ ${jsonEncode(input)}
       final item = Map<String, dynamic>.from(row as Map);
       final id = item['id'];
       if (id is num) {
-        result[id.toInt()] = (item['text'] ?? '').toString();
+        final numericId = id.toInt();
+        var text = (item['text'] ?? '').toString();
+        final replacements = protectedTokens[numericId] ?? const <String, String>{};
+        for (final entry in replacements.entries) {
+          text = text.replaceAll(entry.key, entry.value);
+        }
+        result[numericId] = text;
       }
     }
 
