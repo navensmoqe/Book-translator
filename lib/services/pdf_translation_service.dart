@@ -37,6 +37,26 @@ class _SampledColors {
   final PdfColor foreground;
 }
 
+class _LayoutBox {
+  const _LayoutBox({
+    required this.left,
+    required this.top,
+    required this.width,
+    required this.height,
+  });
+
+  final double left;
+  final double top;
+  final double width;
+  final double height;
+}
+
+class _SectionText {
+  const _SectionText(this.number, this.title);
+  final String number;
+  final String title;
+}
+
 class PdfTranslationService {
   PdfTranslationService(this.router);
 
@@ -133,42 +153,25 @@ class PdfTranslationService {
                 ];
 
                 for (final region in regions) {
-                  final r = region.rect;
-
-                  // A little extra horizontal room is important for Arabic,
-                  // which frequently needs more width than the English source.
-                  final horizontalPad = math.max(1.2, r.width * sx * 0.025);
-                  final verticalPad = math.max(0.7, r.height * sy * 0.035);
-
-                  final left =
-                      math.max(0.0, r.left * sx - horizontalPad).toDouble();
-                  final top =
-                      math.max(0.0, r.top * sy - verticalPad).toDouble();
-                  final width = math
-                      .min(
-                        pageWidth - left,
-                        math.max(
-                          6.0,
-                          r.width * sx + horizontalPad * 2,
-                        ),
-                      )
-                      .toDouble();
-                  final height = math
-                      .min(
-                        pageHeight - top,
-                        math.max(
-                          5.0,
-                          r.height * sy + verticalPad * 2,
-                        ),
-                      )
-                      .toDouble();
-
                   final translated = region.translated.trim().isEmpty
                       ? region.source
                       : region.translated.trim();
 
-                  final innerWidth = math.max(2.0, width - 2.4).toDouble();
-                  final innerHeight = math.max(2.0, height - 1.4).toDouble();
+                  final box = _layoutBox(
+                    region,
+                    regions,
+                    translated,
+                    pageWidth,
+                    pageHeight,
+                    sx,
+                    sy,
+                  );
+
+                  final innerWidth =
+                      math.max(2.0, box.width - 3.0).toDouble();
+                  final innerHeight =
+                      math.max(2.0, box.height - 2.0).toDouble();
+
                   final fontSize = _fitFontSize(
                     translated,
                     innerWidth,
@@ -176,37 +179,69 @@ class PdfTranslationService {
                     region.sourceLineCount,
                   );
 
-                  children.add(
-                    pw.Positioned(
-                      left: left,
-                      top: top,
-                      child: pw.Container(
-                        width: width,
-                        height: height,
-                        color: region.background,
-                        padding: const pw.EdgeInsets.symmetric(
-                          horizontal: 1.2,
-                          vertical: 0.7,
-                        ),
-                        alignment: pw.Alignment.centerRight,
-                        child: pw.FittedBox(
-                          fit: pw.BoxFit.scaleDown,
-                          alignment: pw.Alignment.centerRight,
-                          child: pw.Container(
-                            width: innerWidth,
-                            child: pw.Text(
-                              translated,
-                              textDirection: pw.TextDirection.rtl,
-                              textAlign: pw.TextAlign.right,
-                              softWrap: true,
-                              style: pw.TextStyle(
-                                font: arabicFont,
-                                fontSize: fontSize,
-                                color: region.foreground,
+                  final maxLines = math.max(
+                    1,
+                    (innerHeight / (fontSize * 1.22)).floor(),
+                  );
+
+                  final section = _sectionText(region.source, translated);
+                  final displayText = _displayArabic(translated);
+
+                  final textStyle = pw.TextStyle(
+                    font: arabicFont,
+                    fontSize: fontSize,
+                    color: region.foreground,
+                  );
+
+                  final textWidget = section == null
+                      ? pw.Text(
+                          displayText,
+                          textDirection: pw.TextDirection.rtl,
+                          textAlign: pw.TextAlign.right,
+                          softWrap: true,
+                          maxLines: maxLines,
+                          overflow: pw.TextOverflow.clip,
+                          style: textStyle,
+                        )
+                      : pw.Row(
+                          mainAxisAlignment: pw.MainAxisAlignment.end,
+                          crossAxisAlignment: pw.CrossAxisAlignment.center,
+                          children: [
+                            pw.Flexible(
+                              child: pw.Text(
+                                _displayArabic(section.title),
+                                textDirection: pw.TextDirection.rtl,
+                                textAlign: pw.TextAlign.right,
+                                softWrap: true,
+                                maxLines: maxLines,
+                                overflow: pw.TextOverflow.clip,
+                                style: textStyle,
                               ),
                             ),
-                          ),
+                            pw.SizedBox(width: 2.4),
+                            pw.Text(
+                              section.number,
+                              textDirection: pw.TextDirection.ltr,
+                              textAlign: pw.TextAlign.right,
+                              style: textStyle,
+                            ),
+                          ],
+                        );
+
+                  children.add(
+                    pw.Positioned(
+                      left: box.left,
+                      top: box.top,
+                      child: pw.Container(
+                        width: box.width,
+                        height: box.height,
+                        color: region.background,
+                        padding: const pw.EdgeInsets.symmetric(
+                          horizontal: 1.5,
+                          vertical: 1.0,
                         ),
+                        alignment: pw.Alignment.centerRight,
+                        child: textWidget,
                       ),
                     ),
                   );
@@ -362,11 +397,527 @@ class PdfTranslationService {
   }
 
   String _normalizeTranslated(String value) {
-    return value
+    var result = value
         .replaceAll('\u200b', '')
         .replaceAll('\u00a0', ' ')
         .replaceAll(RegExp(r'[ \t\r\n]+'), ' ')
         .trim();
+
+    // Some models occasionally put a full stop before an isolated number in
+    // RTL output (".125"). Remove only that accidental leading dot while
+    // keeping normal decimal numbers untouched.
+    result = result.replaceAllMapped(
+      RegExp(r'(^|[\s:،؛])\.(\d+)'),
+      (m) => '${m.group(1) ?? ''}${m.group(2) ?? ''}',
+    );
+
+    return result;
+  }
+
+  _LayoutBox _layoutBox(
+    PdfTextRegion region,
+    List<PdfTextRegion> all,
+    String text,
+    double pageWidth,
+    double pageHeight,
+    double sx,
+    double sy,
+  ) {
+    final r = region.rect;
+    final baseHeight = math.max(5.0, r.height * sy + 1.8).toDouble();
+    final originalWidth = math.max(6.0, r.width * sx + 2.6).toDouble();
+
+    final isTableLike = _isTableLike(region, all);
+    final widthGrowth = isTableLike
+        ? 0.0
+        : math.min(pageWidth * 0.045, originalWidth * 0.10).toDouble();
+
+    var left = math.max(0.0, r.left * sx - 1.3 - widthGrowth).toDouble();
+    final top = math.max(0.0, r.top * sy - 0.9).toDouble();
+    var width = math
+        .min(
+          pageWidth - left,
+          originalWidth + widthGrowth * 2,
+        )
+        .toDouble();
+
+    if (width < 6.0) width = 6.0;
+
+    final sourceLines = math.max(1, region.sourceLineCount);
+    final sourceLineHeight = math.max(7.6, (r.height * sy) / sourceLines);
+    final preferredFont =
+        math.min(16.5, math.max(8.0, sourceLineHeight * 0.92)).toDouble();
+    final estimatedLines = _estimateWrappedLines(
+      _displayArabic(text),
+      math.max(2.0, width - 3.0),
+      preferredFont,
+    );
+    final desiredHeight = math.max(
+      baseHeight,
+      estimatedLines * preferredFont * 1.24 + 2.2,
+    ).toDouble();
+
+    var nearestBelow = pageHeight;
+    for (final other in all) {
+      if (identical(other, region)) continue;
+      if (other.rect.top <= r.top + 0.5) continue;
+
+      final overlap = math.max(
+        0.0,
+        math.min(r.right, other.rect.right) -
+            math.max(r.left, other.rect.left),
+      );
+      final minWidth = math.max(1.0, math.min(r.width, other.rect.width));
+      if (overlap / minWidth < 0.22) continue;
+
+      nearestBelow = math.min(nearestBelow, other.rect.top * sy);
+    }
+
+    final availableHeight =
+        math.max(baseHeight, nearestBelow - top - 1.2).toDouble();
+    final height = math
+        .min(
+          pageHeight - top,
+          math.min(
+            desiredHeight,
+            isTableLike
+                ? math.max(baseHeight, availableHeight)
+                : math.max(baseHeight * 1.35, availableHeight),
+          ),
+        )
+        .toDouble();
+
+    // Keep the box fully on-page after the small horizontal expansion.
+    if (left + width > pageWidth) {
+      width = math.max(6.0, pageWidth - left).toDouble();
+    }
+
+    return _LayoutBox(
+      left: left,
+      top: top,
+      width: width,
+      height: math.max(baseHeight, height).toDouble(),
+    );
+  }
+
+  bool _isTableLike(PdfTextRegion region, List<PdfTextRegion> all) {
+    final r = region.rect;
+    for (final other in all) {
+      if (identical(other, region)) continue;
+      final o = other.rect;
+
+      final verticalOverlap = math.max(
+        0.0,
+        math.min(r.bottom, o.bottom) - math.max(r.top, o.top),
+      );
+      final minHeight = math.max(1.0, math.min(r.height, o.height));
+      if (verticalOverlap / minHeight < 0.55) continue;
+
+      final gap = o.left > r.right
+          ? o.left - r.right
+          : r.left > o.right
+              ? r.left - o.right
+              : 0.0;
+
+      if (gap <= math.max(r.height, o.height) * 3.0) return true;
+    }
+    return false;
+  }
+
+  _SectionText? _sectionText(String source, String translated) {
+    final match = RegExp(r'^\s*(\d+(?:\.\d+)*)\.\s*(.+)    String text,
+    double width,
+    double height,
+    int sourceLineCount,
+  ) {
+    final lines = math.max(1, sourceLineCount);
+    final sourceBased = (height / lines) * 0.90;
+    var size = math.min(18.0, math.max(8.0, sourceBased)).toDouble();
+
+    while (size > 7.2) {
+      final estimatedLines =
+          _estimateWrappedLines(_displayArabic(text), width, size);
+      final neededHeight = estimatedLines * size * 1.22;
+      if (neededHeight <= height * 0.98) return size;
+      size -= 0.30;
+    }
+
+    return 7.2;
+  }
+
+  int _estimateWrappedLines(String text, double width, double fontSize) {
+    if (text.trim().isEmpty) return 1;
+
+    // Cairo Arabic glyphs average a little over half an em in document text.
+    final capacity = math.max(3, (width / (fontSize * 0.56)).floor());
+    var lines = 1;
+    var used = 0;
+
+    for (final word in text.split(RegExp(r'\s+'))) {
+      if (word.isEmpty) continue;
+      final length = word.runes.length;
+
+      if (used == 0) {
+        used = length;
+      } else if (used + 1 + length <= capacity) {
+        used += 1 + length;
+      } else {
+        lines++;
+        used = length;
+      }
+
+      if (used > capacity) {
+        final extra = ((used - 1) ~/ capacity);
+        lines += extra;
+        used = ((used - 1) % capacity) + 1;
+      }
+    }
+
+    return lines;
+  }
+
+  Future<void> _sampleRegionColors(
+    Uint8List imageBytes,
+    List<PdfTextRegion> regions,
+  ) async {
+    ui.Codec? codec;
+    ui.Image? image;
+
+    try {
+      codec = await ui.instantiateImageCodec(imageBytes);
+      final frame = await codec.getNextFrame();
+      image = frame.image;
+
+      final byteData =
+          await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      if (byteData == null) return;
+
+      final rgba = byteData.buffer.asUint8List(
+        byteData.offsetInBytes,
+        byteData.lengthInBytes,
+      );
+
+      for (final region in regions) {
+        final colors = _sampleColors(
+          rgba,
+          image.width,
+          image.height,
+          region.rect,
+        );
+        region.background = colors.background;
+        region.foreground = colors.foreground;
+      }
+    } catch (_) {
+      // Color matching is a visual enhancement only. Translation should still
+      // succeed even if a particular Android device cannot decode the raster.
+    } finally {
+      image?.dispose();
+      codec?.dispose();
+    }
+  }
+
+  _SampledColors _sampleColors(
+    Uint8List rgba,
+    int imageWidth,
+    int imageHeight,
+    ui.Rect rect,
+  ) {
+    final rs = <int>[];
+    final gs = <int>[];
+    final bs = <int>[];
+
+    void sample(double x, double y) {
+      final px = x.round().clamp(0, imageWidth - 1).toInt();
+      final py = y.round().clamp(0, imageHeight - 1).toInt();
+      final index = (py * imageWidth + px) * 4;
+      if (index + 3 >= rgba.length) return;
+      final alpha = rgba[index + 3];
+      if (alpha < 128) return;
+      rs.add(rgba[index]);
+      gs.add(rgba[index + 1]);
+      bs.add(rgba[index + 2]);
+    }
+
+    final offset = math.max(2.0, math.min(rect.width, rect.height) * 0.18);
+    final xs = <double>[
+      rect.left,
+      rect.left + rect.width * 0.25,
+      rect.center.dx,
+      rect.left + rect.width * 0.75,
+      rect.right,
+    ];
+    final ys = <double>[
+      rect.top,
+      rect.top + rect.height * 0.25,
+      rect.center.dy,
+      rect.top + rect.height * 0.75,
+      rect.bottom,
+    ];
+
+    for (final x in xs) {
+      sample(x, rect.top - offset);
+      sample(x, rect.bottom + offset);
+    }
+    for (final y in ys) {
+      sample(rect.left - offset, y);
+      sample(rect.right + offset, y);
+    }
+
+    if (rs.isEmpty) {
+      return const _SampledColors(PdfColors.white, PdfColors.black);
+    }
+
+    rs.sort();
+    gs.sort();
+    bs.sort();
+    final mid = rs.length ~/ 2;
+    final r = rs[mid];
+    final g = gs[mid];
+    final b = bs[mid];
+
+    final background = PdfColor(r / 255, g / 255, b / 255);
+    final luminance =
+        (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0;
+    final foreground =
+        luminance < 0.48 ? PdfColors.white : PdfColors.black;
+
+    return _SampledColors(background, foreground);
+  }
+
+  List<List<PdfTextRegion>> _chunk(List<PdfTextRegion> items) {
+    final result = <List<PdfTextRegion>>[];
+    var current = <PdfTextRegion>[];
+    var chars = 0;
+
+    for (final item in items) {
+      final next = item.source.length;
+      if (current.isNotEmpty &&
+          (current.length >= 24 || chars + next > 5000)) {
+        result.add(current);
+        current = <PdfTextRegion>[];
+        chars = 0;
+      }
+      current.add(item);
+      chars += next;
+    }
+
+    if (current.isNotEmpty) result.add(current);
+    return result;
+  }
+}
+).firstMatch(source);
+    if (match == null) return null;
+
+    final number = '${match.group(1)}.';
+    var title = translated.trim();
+
+    // Remove whichever side the model placed the section number on.
+    title = title.replaceFirst(
+      RegExp(r'^\s*\.?\s*\d+(?:\.\d+)*\.?\s*'),
+      '',
+    );
+    title = title.replaceFirst(
+      RegExp(r'\s*\.?\s*\d+(?:\.\d+)*\.?\s*    String text,
+    double width,
+    double height,
+    int sourceLineCount,
+  ) {
+    final lines = math.max(1, sourceLineCount);
+    final sourceBased = (height / lines) * 0.82;
+    var size = math.min(22.0, math.max(7.0, sourceBased)).toDouble();
+
+    while (size > 5.5) {
+      final estimatedLines = _estimateWrappedLines(text, width, size);
+      final neededHeight = estimatedLines * size * 1.18;
+      if (neededHeight <= height * 0.98) return size;
+      size -= 0.35;
+    }
+
+    return 5.5;
+  }
+
+  int _estimateWrappedLines(String text, double width, double fontSize) {
+    if (text.trim().isEmpty) return 1;
+
+    // Cairo Arabic glyphs average a little over half an em in document text.
+    final capacity = math.max(3, (width / (fontSize * 0.56)).floor());
+    var lines = 1;
+    var used = 0;
+
+    for (final word in text.split(RegExp(r'\s+'))) {
+      if (word.isEmpty) continue;
+      final length = word.runes.length;
+
+      if (used == 0) {
+        used = length;
+      } else if (used + 1 + length <= capacity) {
+        used += 1 + length;
+      } else {
+        lines++;
+        used = length;
+      }
+
+      if (used > capacity) {
+        final extra = ((used - 1) ~/ capacity);
+        lines += extra;
+        used = ((used - 1) % capacity) + 1;
+      }
+    }
+
+    return lines;
+  }
+
+  Future<void> _sampleRegionColors(
+    Uint8List imageBytes,
+    List<PdfTextRegion> regions,
+  ) async {
+    ui.Codec? codec;
+    ui.Image? image;
+
+    try {
+      codec = await ui.instantiateImageCodec(imageBytes);
+      final frame = await codec.getNextFrame();
+      image = frame.image;
+
+      final byteData =
+          await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      if (byteData == null) return;
+
+      final rgba = byteData.buffer.asUint8List(
+        byteData.offsetInBytes,
+        byteData.lengthInBytes,
+      );
+
+      for (final region in regions) {
+        final colors = _sampleColors(
+          rgba,
+          image.width,
+          image.height,
+          region.rect,
+        );
+        region.background = colors.background;
+        region.foreground = colors.foreground;
+      }
+    } catch (_) {
+      // Color matching is a visual enhancement only. Translation should still
+      // succeed even if a particular Android device cannot decode the raster.
+    } finally {
+      image?.dispose();
+      codec?.dispose();
+    }
+  }
+
+  _SampledColors _sampleColors(
+    Uint8List rgba,
+    int imageWidth,
+    int imageHeight,
+    ui.Rect rect,
+  ) {
+    final rs = <int>[];
+    final gs = <int>[];
+    final bs = <int>[];
+
+    void sample(double x, double y) {
+      final px = x.round().clamp(0, imageWidth - 1).toInt();
+      final py = y.round().clamp(0, imageHeight - 1).toInt();
+      final index = (py * imageWidth + px) * 4;
+      if (index + 3 >= rgba.length) return;
+      final alpha = rgba[index + 3];
+      if (alpha < 128) return;
+      rs.add(rgba[index]);
+      gs.add(rgba[index + 1]);
+      bs.add(rgba[index + 2]);
+    }
+
+    final offset = math.max(2.0, math.min(rect.width, rect.height) * 0.18);
+    final xs = <double>[
+      rect.left,
+      rect.left + rect.width * 0.25,
+      rect.center.dx,
+      rect.left + rect.width * 0.75,
+      rect.right,
+    ];
+    final ys = <double>[
+      rect.top,
+      rect.top + rect.height * 0.25,
+      rect.center.dy,
+      rect.top + rect.height * 0.75,
+      rect.bottom,
+    ];
+
+    for (final x in xs) {
+      sample(x, rect.top - offset);
+      sample(x, rect.bottom + offset);
+    }
+    for (final y in ys) {
+      sample(rect.left - offset, y);
+      sample(rect.right + offset, y);
+    }
+
+    if (rs.isEmpty) {
+      return const _SampledColors(PdfColors.white, PdfColors.black);
+    }
+
+    rs.sort();
+    gs.sort();
+    bs.sort();
+    final mid = rs.length ~/ 2;
+    final r = rs[mid];
+    final g = gs[mid];
+    final b = bs[mid];
+
+    final background = PdfColor(r / 255, g / 255, b / 255);
+    final luminance =
+        (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0;
+    final foreground =
+        luminance < 0.48 ? PdfColors.white : PdfColors.black;
+
+    return _SampledColors(background, foreground);
+  }
+
+  List<List<PdfTextRegion>> _chunk(List<PdfTextRegion> items) {
+    final result = <List<PdfTextRegion>>[];
+    var current = <PdfTextRegion>[];
+    var chars = 0;
+
+    for (final item in items) {
+      final next = item.source.length;
+      if (current.isNotEmpty &&
+          (current.length >= 24 || chars + next > 5000)) {
+        result.add(current);
+        current = <PdfTextRegion>[];
+        chars = 0;
+      }
+      current.add(item);
+      chars += next;
+    }
+
+    if (current.isNotEmpty) result.add(current);
+    return result;
+  }
+}
+),
+      '',
+    );
+    if (title.isEmpty) title = match.group(2) ?? translated;
+
+    return _SectionText(number, title);
+  }
+
+  String _displayArabic(String value) {
+    var result = value.trim();
+
+    // Keep regular spaces for wrapping, but add a tiny visual spacer so Arabic
+    // words do not appear glued together at small PDF font sizes.
+    result = result.replaceAll(' ', ' \u2009');
+
+    // Stabilize embedded western numbers/acronyms inside RTL text.
+    result = result.replaceAllMapped(
+      RegExp(r'(?<![A-Za-z0-9])(?:\d+[\d.,:/-]*|[A-Z]{2,})(?![A-Za-z0-9])'),
+      (m) => '\u200E${m.group(0)}\u200E',
+    );
+
+    return result;
   }
 
   double _fitFontSize(
