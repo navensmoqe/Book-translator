@@ -525,7 +525,47 @@ class PdfTranslationService {
   }
 
   _SectionText? _sectionText(String source, String translated) {
-    final match = RegExp(r'^\s*(\d+(?:\.\d+)*)\.\s*(.+)    String text,
+    final match =
+        RegExp(r'^\s*(\d+(?:\.\d+)*)\.\s*(.+)$').firstMatch(source);
+    if (match == null) return null;
+
+    final number = '${match.group(1)}.';
+    var title = translated.trim();
+
+    // Remove whichever side the model placed the section number on.
+    title = title.replaceFirst(
+      RegExp(r'^\s*\.?\s*\d+(?:\.\d+)*\.?\s*'),
+      '',
+    );
+    title = title.replaceFirst(
+      RegExp(r'\s*\.?\s*\d+(?:\.\d+)*\.?\s*$'),
+      '',
+    );
+    if (title.isEmpty) title = match.group(2) ?? translated;
+
+    return _SectionText(number, title);
+  }
+
+  String _displayArabic(String value) {
+    var result = value.trim();
+
+    // Keep ordinary spaces for wrapping, but add a small visual spacer so
+    // Arabic words remain visibly separated at small PDF font sizes.
+    result = result.replaceAll(' ', ' \u2009');
+
+    // Stabilize embedded western numbers and acronyms inside RTL text.
+    // Avoid lookbehind so this remains compatible with all Dart runtimes.
+    result = result.replaceAllMapped(
+      RegExp(r'(^|[^A-Za-z0-9])(\d+[\d.,:/-]*|[A-Z]{2,})(?=$|[^A-Za-z0-9])'),
+      (m) =>
+          '${m.group(1) ?? ''}\u200E${m.group(2) ?? ''}\u200E',
+    );
+
+    return result;
+  }
+
+  double _fitFontSize(
+    String text,
     double width,
     double height,
     int sourceLineCount,
